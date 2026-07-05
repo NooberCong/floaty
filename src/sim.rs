@@ -81,14 +81,6 @@ impl RippleSim {
         self.curr[(y * self.width + x) as usize]
     }
 
-    /// Horizontal slope at a surface-pixel x — used to tilt the character.
-    pub fn slope_at(&self, px: f32) -> f32 {
-        let x = ((px / CELL as f32) as u32).clamp(1, self.width - 2);
-        let y = self.height / 2;
-        let i = (y * self.width + x) as usize;
-        (self.curr[i + 1] - self.curr[i - 1]) * 0.5
-    }
-
     /// True once ripples have decayed below perception; lets the app drop to
     /// the idle frame rate.
     pub fn is_calm(&self) -> bool {

@@ -22,7 +22,9 @@ const CMD_AUTOSTART: u32 = 3;
 const CMD_OPEN_CONFIG: u32 = 4;
 const CMD_ABOUT: u32 = 5;
 const CMD_EXIT: u32 = 6;
+const CMD_WATER_COLOR: u32 = 7;
 const CMD_CHARACTER_BASE: u32 = 100;
+const CMD_CHARACTER_IMPORT: u32 = 197;
 const CMD_CHARACTER_ROTATE: u32 = 198;
 const CMD_CHARACTER_CUSTOM: u32 = 199;
 
@@ -31,10 +33,12 @@ pub enum TrayCommand {
     TogglePause,
     ToggleMouseRipples,
     ToggleAutostart,
+    WaterColor,
     OpenConfig,
     About,
     Exit,
     SelectCharacter(String),
+    ImportImage,
 }
 
 pub struct Tray {
@@ -108,19 +112,27 @@ impl Tray {
                 CMD_CHARACTER_ROTATE as usize,
                 w!("Surprise me (rotate)"),
             );
+            let _ = AppendMenuW(characters, MF_SEPARATOR, 0, None);
             let custom_flags = if custom_available { MF_STRING } else { MF_STRING | MF_GRAYED }
                 | if character == "custom" { MF_CHECKED } else { MF_UNCHECKED };
             let _ = AppendMenuW(
                 characters,
                 custom_flags,
                 CMD_CHARACTER_CUSTOM as usize,
-                w!("Custom (from config)"),
+                w!("Custom image"),
+            );
+            let _ = AppendMenuW(
+                characters,
+                MF_STRING,
+                CMD_CHARACTER_IMPORT as usize,
+                w!("Import image…"),
             );
 
             let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
             let pause_label = if paused { w!("Resume") } else { w!("Pause") };
             let _ = AppendMenuW(menu, MF_STRING, CMD_PAUSE as usize, pause_label);
             let _ = AppendMenuW(menu, MF_POPUP, characters.0 as usize, w!("Character"));
+            let _ = AppendMenuW(menu, MF_STRING, CMD_WATER_COLOR as usize, w!("Water color…"));
             let _ = AppendMenuW(menu, MF_STRING | check(mouse_ripples), CMD_MOUSE_RIPPLES as usize, w!("Mouse ripples"));
             let _ = AppendMenuW(menu, MF_STRING | check(autostart), CMD_AUTOSTART as usize, w!("Start with Windows"));
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
@@ -149,9 +161,11 @@ impl Tray {
                 CMD_PAUSE => Some(TrayCommand::TogglePause),
                 CMD_MOUSE_RIPPLES => Some(TrayCommand::ToggleMouseRipples),
                 CMD_AUTOSTART => Some(TrayCommand::ToggleAutostart),
+                CMD_WATER_COLOR => Some(TrayCommand::WaterColor),
                 CMD_OPEN_CONFIG => Some(TrayCommand::OpenConfig),
                 CMD_ABOUT => Some(TrayCommand::About),
                 CMD_EXIT => Some(TrayCommand::Exit),
+                CMD_CHARACTER_IMPORT => Some(TrayCommand::ImportImage),
                 CMD_CHARACTER_ROTATE => Some(TrayCommand::SelectCharacter("rotate".into())),
                 CMD_CHARACTER_CUSTOM => Some(TrayCommand::SelectCharacter("custom".into())),
                 id if id >= CMD_CHARACTER_BASE => ROSTER

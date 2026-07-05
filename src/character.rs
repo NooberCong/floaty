@@ -33,9 +33,12 @@ pub struct Character {
     anim_t: f32,
     wake_t: f32,
     splash_t: f32,
-    /// Smoothed water-follow values so bobbing looks buoyant, not jittery.
+    /// Heave/pitch spring state: the hull follows the water like a real
+    /// floating body, overshooting and ringing briefly on sharp disturbances.
     bob: f32,
+    bob_vel: f32,
     tilt: f32,
+    tilt_vel: f32,
 }
 
 /// Per-frame output the renderer consumes.
@@ -62,7 +65,9 @@ impl Character {
             wake_t: 0.0,
             splash_t: 8.0,
             bob: 0.0,
+            bob_vel: 0.0,
             tilt: 0.0,
+            tilt_vel: 0.0,
         }
     }
 
@@ -125,19 +130,31 @@ impl Character {
             sim.splash(self.x, splash_y, 9.0, -0.7);
         }
 
-        // Buoyancy: follow the water surface with a soft spring, plus a slow
-        // autonomous bob so the character never looks frozen on calm water.
-        let surface = sim.height_at(self.x);
-        let slope = sim.slope_at(self.x);
-        let follow = (dt * 5.0).min(1.0);
-        self.bob += (surface * 6.0 - self.bob) * follow;
-        // Floaters pitch with the surface they ride on; a submerged swimmer
-        // barely notices the waves overhead and stays level.
-        let slope_gain = match atlas.mode {
-            WaterMode::Floater => 0.9,
-            WaterMode::Swimmer => 0.12,
+        // Buoyancy: sample the water under bow and stern and drive heave and
+        // pitch with underdamped springs. A long swell lifts both ends
+        // together (a gentle bob), while a sharp ripple passing underneath —
+        // the mouse stirring the water close by — lifts one end first and
+        // sets the hull rocking, ringing at its natural frequency until the
+        // damping settles it. Distance falloff comes free: ripples flatten
+        // as they spread, so faraway mouse movement barely registers.
+        let half = (sprite_w * 0.35).max(4.0);
+        let bow = sim.height_at(self.x + half);
+        let stern = sim.height_at(self.x - half);
+        // A submerged swimmer barely notices waves overhead: low pitch gain
+        // and near-critical damping so it never rings.
+        let (omega, zeta, pitch_gain) = match atlas.mode {
+            WaterMode::Floater => (13.0, 0.3, 0.7),
+            WaterMode::Swimmer => (7.0, 0.9, 0.1),
         };
-        self.tilt += (slope * slope_gain - self.tilt) * follow;
+        let heave = (bow + stern) * 3.0;
+        let pitch = (bow - stern) * pitch_gain;
+        // Semi-implicit Euler; stable since tick clamps dt ≤ 0.1 (ω·dt < 2).
+        let spring =
+            |x: f32, v: f32, target: f32| (target - x) * omega * omega - 2.0 * zeta * omega * v;
+        self.bob_vel += spring(self.bob, self.bob_vel, heave) * dt;
+        self.bob = (self.bob + self.bob_vel * dt).clamp(-9.0, 9.0);
+        self.tilt_vel += spring(self.tilt, self.tilt_vel, pitch) * dt;
+        self.tilt = (self.tilt + self.tilt_vel * dt).clamp(-0.5, 0.5);
         // Floaters ride visibly up and down; swimmers only drift a little.
         let bob_amp = match atlas.mode {
             WaterMode::Floater => 3.0,

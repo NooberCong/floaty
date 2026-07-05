@@ -37,7 +37,9 @@ work.
   icon, and tooltip on your taskbar works exactly as before.
 - **Real water, not a GIF.** A height-field wave simulation runs at a fixed
   60 Hz: wakes trail behind the swimmer, your cursor stirs the surface, and
-  crests catch specular light with foam where waves break.
+  crests catch specular light with foam where waves break. Stir close to the
+  character and the ripples rock it — heave and pitch ride real springs, so
+  a sharp wave sets the hull visibly bobbing before it settles.
 - **A companion, not a loop.** Characters wander, pause, turn around with a
   little squash-and-stretch, bob on the swell, and occasionally splash —
   driven by simulation, so no two minutes look the same.
@@ -46,33 +48,37 @@ work.
 
 ## The cast
 
-| Character | Style |
-|---|---|
-| 🦆 **Duck** | Paddles on the surface, reflection below, occasionally dips its head |
-| 🐹 **Capybara** | Soaks half-submerged, onsen-style, legs faintly visible underwater |
-| 🐠 **Clownfish** | Swims mid-water with a generated tail-sweep animation |
-| 🥥 **Coconut** | Drifts, bobs, and sways like the real thing off a beach |
-| ⛵ **Sailboat** | Cruises with a waving pennant and rippling sails |
-| 🎲 **Surprise me** | Rotates through the cast at random on a timer |
-| 🖼️ **Custom** | Bring your own sprite sheet — one line of config |
+| | Character | Style |
+|:---:|---|---|
+| <img src="docs/characters/duck.png" alt="Duck sprite" height="56"> | 🦆 **Duck** | Paddles on the surface, reflection below, occasionally dips its head |
+| <img src="docs/characters/capybara.png" alt="Capybara sprite" height="56"> | 🐹 **Capybara** | Soaks half-submerged, onsen-style, legs faintly visible underwater |
+| <img src="docs/characters/fish.png" alt="Clownfish sprite" height="56"> | 🐠 **Clownfish** | Swims mid-water with a generated tail-sweep animation |
+| <img src="docs/characters/coconut.png" alt="Coconut sprite" height="56"> | 🥥 **Coconut** | Drifts, bobs, and sways like the real thing off a beach |
+| <img src="docs/characters/boat.png" alt="Sailboat sprite" height="56"> | ⛵ **Sailboat** | Cruises with a waving pennant and rippling sails |
+| | 🎲 **Surprise me** | Rotates through the cast at random on a timer |
+| | 🖼️ **Custom** | [Import any image](#custom-characters) from the tray, or bring your own sprite sheet |
 
 Everything above is switchable in two clicks from the tray icon.
 
 ## Installation
 
-**Download** the latest `floaty.exe` from
-[Releases](https://github.com/NooberCong/floaty/releases), run it, and look at
-your taskbar. That's the entire install.
+Grab either flavor from [Releases](https://github.com/NooberCong/floaty/releases):
+
+- **`FloatySetup.exe`** — a tiny installer: Start-menu shortcut, clean
+  uninstaller, no admin rights needed.
+- **`floaty.exe`** — fully portable: run it, and look at your taskbar.
+  That's the entire install.
 
 Enable **Start with Windows** from the tray menu to make it permanent. To
-uninstall: tray → Exit, delete the exe. Floaty writes nothing outside
-`%APPDATA%\floaty` and a single autostart registry value (only if you opt in).
+uninstall: use the uninstaller — or for the portable exe, tray → Exit and
+delete the file. Floaty writes nothing outside `%APPDATA%\floaty` and a single
+autostart registry value (only if you opt in).
 
 ## Settings
 
-Right-click the tray duck for the essentials — pause, character picker, mouse
-ripples, autostart. Everything else lives in `%APPDATA%\floaty\config.toml`,
-which hot-reloads the moment you save:
+Right-click the tray duck for the essentials — pause, character picker, water
+color, mouse ripples, autostart. Everything else lives in
+`%APPDATA%\floaty\config.toml`, which hot-reloads the moment you save:
 
 | Key | Default | What it does |
 |---|---|---|
@@ -88,7 +94,29 @@ which hot-reloads the moment you save:
 | `all_monitors` | `true` | Overlay secondary taskbars too |
 | `autostart` | `false` | Launch at sign-in |
 
-Custom characters take any horizontal-strip PNG:
+### Water color
+
+Tray → **Water color…** opens a hue slider that repaints the pool live while
+you drag — the taskbar previews every shade in real time, but nothing is
+saved until you decide. **OK** applies, **Cancel** puts the old water back,
+**Reset to default** returns the stock blue. The slider shifts the surface
+and depth colors together, so the water keeps its sense of depth at any hue.
+(Prefer exact values? Set `water_shallow` / `water_deep` in the config.)
+
+<img src="docs/water-color-picker.png" width="400" alt="Water color picker: hue slider, gradient preview, Reset to default / OK / Cancel buttons" />
+
+### Custom characters
+
+The easy way: tray icon → **Character** → **Import image…** — takes any
+image Windows can decode (PNG, JPEG, GIF, BMP, WebP, …), scales it down to
+taskbar size, and sets it afloat. Imports get the full float physics:
+bobbing on the swell, swaying like the coconut, rocking when ripples pass
+underneath, reflection included. Transparent backgrounds are trimmed
+automatically, and the import is copied into `%APPDATA%\floaty`, so it keeps
+working if the original file moves.
+
+Power users can hand-wire an animated sprite sheet instead — any
+horizontal-strip PNG:
 
 ```toml
 character = "custom"
@@ -126,8 +154,10 @@ overlay.rs    click-through layered windows glued over each taskbar
 gfx.rs        shared D3D11 device, per-overlay DComp swapchain, draw passes
 shaders.hlsl  water shading: heightfield normals, specular, foam, waterline glow
 sim.rs        two-buffer height-field wave equation on a downsampled CPU grid
-character.rs  wander AI, buoyancy spring, turn squash, wake & idle splashes
+character.rs  wander AI, two-point hull buoyancy on spring-dampers, turn squash
 assets.rs     embedded sprites → trimmed, premultiplied GPU atlases
+colorpicker.rs  water-color popup: hue slider with live taskbar preview
+import.rs     "Import image…": file dialog → WIC decode → normalized sprite
 config.rs     TOML config with hot reload · autostart.rs · tray.rs
 ```
 

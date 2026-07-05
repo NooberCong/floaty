@@ -153,8 +153,13 @@ fn build_custom(spec: &CustomSprite) -> Result<SpriteAtlas> {
         "left" => Facing::Left,
         _ => Facing::Right,
     };
-    let rock = if mode == WaterMode::Floater { 0.04 } else { 0.0 };
-    pack(frames, spec.fps.clamp(0.5, 30.0), mode, facing, 1.0, rock)
+    // Custom floaters ride like the coconut: partly submerged, swaying
+    // visibly — the most forgiving look for arbitrary user images.
+    let (waterline, rock) = match mode {
+        WaterMode::Floater => (0.72, 0.12),
+        WaterMode::Swimmer => (1.0, 0.0),
+    };
+    pack(frames, spec.fps.clamp(0.5, 30.0), mode, facing, waterline, rock)
 }
 
 struct Image {

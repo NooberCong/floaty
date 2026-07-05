@@ -5,8 +5,10 @@
 mod assets;
 mod autostart;
 mod character;
+mod colorpicker;
 mod config;
 mod gfx;
+mod import;
 mod overlay;
 mod sim;
 mod taskbar;
@@ -24,6 +26,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::assets::{SpriteAtlas, WaterMode};
 use crate::character::Character;
+use crate::colorpicker::{WM_WATER_CANCEL, WM_WATER_COMMIT, WM_WATER_PREVIEW};
 use crate::config::{parse_color, ConfigStore};
 use crate::gfx::{Gfx, Params, SpriteDraw, SpriteQuad, SpriteTexture, Surface};
 use crate::sim::RippleSim;
@@ -108,6 +111,9 @@ fn run() -> Result<()> {
         sprite_tex,
         overlays: Vec::new(),
         tray,
+        msg_hwnd,
+        water_preview: None,
+        picker: None,
         taskbar_created_msg: unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) },
         started: Instant::now(),
         last_tick: Instant::now(),
@@ -128,6 +134,18 @@ fn run() -> Result<()> {
     }
 
     log::info!("floaty started");
+    // Dev hook: open the water color picker immediately (tray menu shortcut
+    // for automated testing — harmless if set by accident).
+    if std::env::var_os("FLOATY_OPEN_PICKER").is_some() {
+        app.on_command(TrayCommand::WaterColor);
+    }
+    // Dev hook: import an image without the file dialog (automated testing).
+    if let Some(path) = std::env::var_os("FLOATY_IMPORT") {
+        match import::import_file(std::path::Path::new(&path)) {
+            Ok(spec) => app.apply_import(spec),
+            Err(e) => log::error!("FLOATY_IMPORT failed: {e:#}"),
+        }
+    }
     let mut msg = MSG::default();
     loop {
         unsafe {
@@ -177,6 +195,12 @@ struct App {
     sprite_tex: SpriteTexture,
     overlays: Vec<OverlayState>,
     tray: Tray,
+    msg_hwnd: HWND,
+    /// Water colors being previewed by the color picker; overrides the config
+    /// colors on screen until committed (saved) or cancelled (discarded).
+    water_preview: Option<(String, String)>,
+    /// The color picker window, while one is open.
+    picker: Option<HWND>,
     taskbar_created_msg: u32,
     started: Instant,
     last_tick: Instant,
@@ -254,6 +278,11 @@ impl App {
         }
 
         let cfg = self.store.current.clone();
+        // While the color picker is open its previewed colors win over config.
+        let (col_shallow, col_deep) = match &self.water_preview {
+            Some((s, d)) => (parse_color(s), parse_color(d)),
+            None => (parse_color(&cfg.water_shallow), parse_color(&cfg.water_deep)),
+        };
         let time = (self.started.elapsed().as_secs_f64() % TIME_WRAP) as f32;
         let mut any_active = false;
 
@@ -303,9 +332,9 @@ impl App {
                 viewport: [bar_w, bar_h],
                 time,
                 wave_intensity: cfg.wave_intensity,
-                shallow: parse_color(&cfg.water_shallow),
+                shallow: col_shallow,
                 opacity: cfg.water_opacity,
-                deep: parse_color(&cfg.water_deep),
+                deep: col_deep,
                 ..Default::default()
             };
 
@@ -504,6 +533,14 @@ impl App {
         }
     }
 
+    /// Switch to a freshly imported custom image and persist it.
+    fn apply_import(&mut self, spec: config::CustomSprite) {
+        self.store.current.custom_sprite = Some(spec);
+        self.store.current.character = "custom".into();
+        self.store.save();
+        self.apply_config_change();
+    }
+
     fn on_command(&mut self, cmd: TrayCommand) {
         match cmd {
             TrayCommand::TogglePause => {
@@ -519,11 +556,38 @@ impl App {
                 autostart::sync(self.store.current.autostart);
                 self.store.save();
             }
+            TrayCommand::WaterColor => {
+                // One picker at a time: refocus the open one instead.
+                if let Some(hwnd) = self.picker {
+                    unsafe {
+                        let _ = SetForegroundWindow(hwnd);
+                    }
+                } else {
+                    let cfg = &self.store.current;
+                    match colorpicker::open(self.msg_hwnd, &cfg.water_shallow, &cfg.water_deep) {
+                        Ok(hwnd) => self.picker = Some(hwnd),
+                        Err(e) => log::error!("color picker failed: {e:#}"),
+                    }
+                }
+            }
             TrayCommand::SelectCharacter(id) => {
                 self.store.current.character = id;
                 self.store.save();
                 self.apply_config_change();
             }
+            TrayCommand::ImportImage => match import::pick_and_import(self.msg_hwnd) {
+                Ok(Some(spec)) => self.apply_import(spec),
+                Ok(None) => {} // dialog cancelled
+                Err(e) => {
+                    log::error!("image import failed: {e:#}");
+                    let msg: Vec<u16> = format!("Couldn't import that image:\n\n{e:#}\0")
+                        .encode_utf16()
+                        .collect();
+                    unsafe {
+                        MessageBoxW(None, PCWSTR(msg.as_ptr()), w!("Floaty"), MB_OK | MB_ICONERROR);
+                    }
+                }
+            },
             TrayCommand::OpenConfig => {
                 let path: Vec<u16> = format!("{}\0", self.store.path().display())
                     .encode_utf16()
@@ -607,6 +671,38 @@ extern "system" fn msg_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM
         match msg {
             WM_TRAYICON => {
                 app.on_tray(lparam.0 as u32);
+                return LRESULT(0);
+            }
+            WM_WATER_PREVIEW => {
+                let hue = lparam.0 as f32 / 10.0;
+                // wparam 1 = "Reset to default" was clicked: recolor the
+                // stock palette instead of the saved one.
+                let base = if wparam.0 == 1 {
+                    config::Config::default()
+                } else {
+                    app.store.current.clone()
+                };
+                app.water_preview =
+                    Some(colorpicker::derive(&base.water_shallow, &base.water_deep, hue));
+                return LRESULT(0);
+            }
+            WM_WATER_COMMIT => {
+                if let Some((shallow, deep)) = app.water_preview.take() {
+                    app.store.current.water_shallow = shallow;
+                    app.store.current.water_deep = deep;
+                    app.store.save();
+                    log::info!(
+                        "water color set to {} / {}",
+                        app.store.current.water_shallow,
+                        app.store.current.water_deep
+                    );
+                }
+                app.picker = None;
+                return LRESULT(0);
+            }
+            WM_WATER_CANCEL => {
+                app.water_preview = None;
+                app.picker = None;
                 return LRESULT(0);
             }
             WM_DISPLAYCHANGE | WM_SETTINGCHANGE | WM_DPICHANGED => {
