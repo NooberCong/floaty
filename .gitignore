@@ -1,0 +1,4 @@
+/target
+# Raw downloaded art packs — some (e.g. the Gabl duck pack) prohibit
+# redistribution, so only the processed frames in assets/ are committed.
+/assets/raw
