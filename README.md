@@ -16,7 +16,9 @@ enough that you'll forget it's running.
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![RAM ~45 MB](https://img.shields.io/badge/RAM-~45%20MB-blue)](#performance)
 
-<img src="docs/hero.png" width="100%" alt="Floaty rendering water and a duck on the Windows taskbar" />
+<img src="docs/preview.gif" width="100%" alt="Live capture: the duck floats on the taskbar while cursor ripples spread across the water" />
+
+*Live capture — cursor ripples, wandering duck, all on a real taskbar.*
 
 <img src="docs/duck-closeup.png" width="480" alt="Close-up: the duck floating with reflection and ripples" />
 
