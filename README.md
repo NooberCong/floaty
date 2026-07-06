@@ -51,7 +51,7 @@ work.
 | | Character | Style |
 |:---:|---|---|
 | <img src="docs/characters/duck.png" alt="Duck sprite" height="56"> | 🦆 **Duck** | Paddles on the surface, reflection below, occasionally dips its head |
-| <img src="docs/characters/capybara.png" alt="Capybara sprite" height="56"> | 🐹 **Capybara** | Soaks half-submerged, onsen-style, legs faintly visible underwater |
+| <img src="docs/characters/capybara.png" alt="Capybara sprite" height="56"> | 🐹 **Capybara** | Soaks half-submerged, onsen-style, only its head above the surface |
 | <img src="docs/characters/fish.png" alt="Clownfish sprite" height="56"> | 🐠 **Clownfish** | Swims mid-water with a generated tail-sweep animation |
 | <img src="docs/characters/coconut.png" alt="Coconut sprite" height="56"> | 🥥 **Coconut** | Drifts, bobs, and sways like the real thing off a beach |
 | <img src="docs/characters/boat.png" alt="Sailboat sprite" height="56"> | ⛵ **Sailboat** | Cruises with a waving pennant and rippling sails |
@@ -165,9 +165,9 @@ Details worth knowing:
 
 - The overlay never takes focus or input: `WS_EX_TRANSPARENT` +
   `WS_EX_NOACTIVATE`, with `WM_NCHITTEST` answering `HTTRANSPARENT`.
-- Each character defines its own waterline; anything below it fades out
-  underwater in the pixel shader, which is how the capybara soaks and the
-  duck's feet dim beneath the surface.
+- Each character defines its own waterline; the pixel shader hides body
+  pixels below it and clips the reflection above it, which is how the
+  capybara soaks with only its head showing.
 - Floaty survives `explorer.exe` restarts, taskbar relocation and resize,
   monitor hot-plug, and DPI changes — the overlay set reconciles once per
   second against the live taskbar list.

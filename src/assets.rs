@@ -70,7 +70,7 @@ pub struct CharacterInfo {
     facing: Facing,
     fps: f32,
     /// Where the water surface crosses the (trimmed) frame, 0 = top, 1 = bottom.
-    /// Floaters sink below this line; pixels under it fade out underwater.
+    /// Floaters sink below this line; pixels under it are hidden by the water.
     waterline: f32,
     /// Idle rocking amplitude in radians (floaters sway side to side).
     rock: f32,

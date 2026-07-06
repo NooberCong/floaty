@@ -345,8 +345,8 @@ impl App {
                 // Swimmers glide mid-water.
                 WaterMode::Swimmer => bar_h * 0.52 + pose.y_offset * 0.6,
             };
-            // Water surface at the character (moves with the bob); pixels
-            // below it fade out underwater in the shader.
+            // Water surface at the character (moves with the bob); the shader
+            // hides body pixels below it and reflection pixels above it.
             let waterline = cy + sprite_h * (self.atlas.waterline - 0.5);
             let body_clip = match self.atlas.mode {
                 WaterMode::Floater => waterline,
@@ -357,10 +357,12 @@ impl App {
                 uv,
                 misc: [pose.tilt, pose.facing, body_clip, 0.0],
             };
+            // Mirrored about the waterline; the shader hands visibility from
+            // body to reflection across the underwater fade band.
             let reflection = (self.atlas.mode == WaterMode::Floater).then(|| SpriteQuad {
                 rect: [pose.x, 2.0 * waterline - cy, sprite_w, sprite_h],
                 uv: [uv[0], uv[3], uv[2], uv[1]], // flip v
-                misc: [-pose.tilt, pose.facing, 0.0, 1.0],
+                misc: [-pose.tilt, pose.facing, waterline, 1.0],
             });
 
             let draw = SpriteDraw { body, reflection };

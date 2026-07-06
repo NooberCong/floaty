@@ -137,21 +137,26 @@ float4 sprite_ps(SpriteVsOut i) : SV_Target
     float4 tex = atlas.Sample(linearClamp, px / dim); // premultiplied already
 
     float reflection = sprite_misc.w;
+    float depth = i.pos.y - sprite_misc.z; // px below the waterline
 
-    // Reflections fade out with distance below the waterline and shimmer a touch.
+    // Body and reflection tile the water surface exactly: the body ends at
+    // the waterline and its mirror starts there, over a shared soft edge —
+    // no overlap, no gap, and the mirrored content stays continuous with the
+    // visible body, regardless of where a character's waterline sits.
+    float edge = max(sprite_rect.w * 0.05, 2.0);
+
     if (reflection > 0.5)
     {
-        float fade = (1.0 - i.local.y) * 0.34;
+        // Brightest at the contact line, dying off exponentially with depth
+        // so the mirrored body reads as a sheen. Shimmer a touch.
+        float fade = 0.30 * exp2(-depth / (sprite_rect.w * 0.15));
         fade *= 0.85 + 0.15 * sin(time * 3.0 + i.local.x * 9.0);
-        tex *= fade;
+        tex *= fade * smoothstep(0.0, edge, depth);
     }
     else if (sprite_misc.z > 0.0)
     {
-        // Floater body below its waterline: dim toward a floor instead of
-        // clipping, so legs/feet stay faintly visible through the water.
-        float depth = i.pos.y - sprite_misc.z;
-        float band = max(sprite_rect.w * 0.14, 2.0);
-        tex *= lerp(1.0, 0.28, smoothstep(0.0, band, depth));
+        // Floater body below its waterline is hidden by the water.
+        tex *= 1.0 - smoothstep(0.0, edge, depth);
     }
 
     return tex;
