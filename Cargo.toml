@@ -1,6 +1,6 @@
 [package]
 name = "floaty"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Turns the Windows taskbar into a rippling 2D pool with a floating character"
 license = "MIT"
