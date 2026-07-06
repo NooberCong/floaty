@@ -86,6 +86,7 @@ fn run() -> Result<()> {
     autostart::sync(store.current.autostart);
 
     overlay::register_class()?;
+    overlay::install_raise_hooks();
     let msg_hwnd = create_message_window()?;
     let tray = Tray::new(msg_hwnd)?;
 
@@ -160,6 +161,14 @@ fn run() -> Result<()> {
         }
         if app.quitting {
             break;
+        }
+        // The shell reordered top-level windows — often the taskbar itself,
+        // raised above us when clicked or when a flyout opens. Put the
+        // overlays back on top now; the 1 Hz poll is far too slow to hide it.
+        if overlay::take_raise_request() {
+            for ov in &app.overlays {
+                overlay::raise(ov.hwnd);
+            }
         }
         app.tick();
         let wait = app
