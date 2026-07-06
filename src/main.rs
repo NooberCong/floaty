@@ -709,11 +709,11 @@ extern "system" fn msg_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM
                 app.need_refresh = true;
             }
             m if m == app.taskbar_created_msg && m != 0 => {
-                // Explorer restarted: tray icon and overlays are gone.
-                log::info!("explorer restarted; re-adding tray icon and overlays");
-                if let Ok(tray) = Tray::new(hwnd) {
-                    app.tray = tray;
-                }
+                // Explorer (re)created the taskbar: tray icon and overlays are
+                // gone. Re-add in place — building a fresh `Tray` here would
+                // drop the old one after the add and NIM_DELETE the new icon.
+                log::info!("taskbar (re)created; re-adding tray icon and overlays");
+                app.tray.readd();
                 for ov in app.overlays.drain(..) {
                     overlay::destroy(ov.hwnd);
                 }

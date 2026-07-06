@@ -7,7 +7,8 @@ use windows::core::w;
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
+    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+    NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -43,6 +44,7 @@ pub enum TrayCommand {
 
 pub struct Tray {
     hwnd: HWND,
+    data: NOTIFYICONDATAW,
 }
 
 impl Tray {
@@ -76,10 +78,42 @@ impl Tray {
         let tip: Vec<u16> = "Floaty — taskbar pool\0".encode_utf16().collect();
         data.szTip[..tip.len()].copy_from_slice(&tip);
 
-        if !unsafe { Shell_NotifyIconW(NIM_ADD, &data) }.as_bool() {
-            anyhow::bail!("Shell_NotifyIconW(NIM_ADD) failed");
+        let tray = Self { hwnd, data };
+        // At logon the shell may still be initializing: NIM_ADD can time out
+        // or fail outright, so retry briefly. If the taskbar doesn't exist yet
+        // at all, the TaskbarCreated broadcast triggers `readd` later.
+        for attempt in 0..5 {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(400));
+            }
+            if tray.add() {
+                return Ok(tray);
+            }
         }
-        Ok(Self { hwnd })
+        log::warn!("tray icon add failed; waiting for TaskbarCreated to retry");
+        Ok(tray)
+    }
+
+    fn add(&self) -> bool {
+        unsafe {
+            if Shell_NotifyIconW(NIM_ADD, &self.data).as_bool() {
+                return true;
+            }
+            // NIM_ADD can report failure on timeout even though the icon was
+            // actually added — NIM_MODIFY succeeding confirms it's there.
+            Shell_NotifyIconW(NIM_MODIFY, &self.data).as_bool()
+        }
+    }
+
+    /// Re-add the icon after the taskbar is (re)created, reusing the same
+    /// identity so `Drop` still cleans it up.
+    pub fn readd(&self) {
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_DELETE, &self.data);
+        }
+        if !self.add() {
+            log::warn!("re-adding tray icon failed");
+        }
     }
 
     /// Show the context menu at the cursor and translate the pick.
@@ -179,14 +213,8 @@ impl Tray {
 
 impl Drop for Tray {
     fn drop(&mut self) {
-        let data = NOTIFYICONDATAW {
-            cbSize: size_of::<NOTIFYICONDATAW>() as u32,
-            hWnd: self.hwnd,
-            uID: 1,
-            ..Default::default()
-        };
         unsafe {
-            let _ = Shell_NotifyIconW(NIM_DELETE, &data);
+            let _ = Shell_NotifyIconW(NIM_DELETE, &self.data);
         }
     }
 }
