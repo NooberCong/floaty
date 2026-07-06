@@ -1,7 +1,7 @@
 ; Floaty installer — per-user, no admin required.
 ; Build: ISCC.exe res\setup.iss   (output → target\dist\FloatySetup-<version>.exe)
 
-#define AppVersion "0.1.1"
+#define AppVersion "0.1.2"
 
 [Setup]
 AppId={{7A1FDA37-6E2C-4C51-9B45-8E5D0F6A2C11}
