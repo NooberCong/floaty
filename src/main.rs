@@ -685,16 +685,16 @@ extern "system" fn msg_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM
                 return LRESULT(0);
             }
             WM_WATER_PREVIEW => {
-                let hue = lparam.0 as f32 / 10.0;
-                // wparam 1 = "Reset to default" was clicked: recolor the
+                // Stock flag = "Reset to default" was clicked: recolor the
                 // stock palette instead of the saved one.
-                let base = if wparam.0 == 1 {
+                let (stock, h, s, l) = colorpicker::decode_preview(wparam, lparam);
+                let base = if stock {
                     config::Config::default()
                 } else {
                     app.store.current.clone()
                 };
                 app.water_preview =
-                    Some(colorpicker::derive(&base.water_shallow, &base.water_deep, hue));
+                    Some(colorpicker::derive(&base.water_shallow, &base.water_deep, h, s, l));
                 return LRESULT(0);
             }
             WM_WATER_COMMIT => {

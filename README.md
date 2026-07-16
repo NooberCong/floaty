@@ -96,14 +96,16 @@ color, mouse ripples, autostart. Everything else lives in
 
 ### Water color
 
-Tray → **Water color…** opens a hue slider that repaints the pool live while
-you drag — the taskbar previews every shade in real time, but nothing is
-saved until you decide. **OK** applies, **Cancel** puts the old water back,
-**Reset to default** returns the stock blue. The slider shifts the surface
-and depth colors together, so the water keeps its sense of depth at any hue.
-(Prefer exact values? Set `water_shallow` / `water_deep` in the config.)
+Tray → **Water color…** opens hue, saturation, and lightness sliders that
+repaint the pool live while you drag — the taskbar previews every shade in
+real time, but nothing is saved until you decide. **OK** applies, **Cancel**
+puts the old water back, **Reset to default** returns the stock blue. The
+sliders shift the surface and depth colors together, so the water keeps its
+sense of depth at any color — from vivid tropical blue to pastel pink to
+milky white. (Prefer exact values? Set `water_shallow` / `water_deep` in the
+config.)
 
-<img src="docs/water-color-picker.png" width="400" alt="Water color picker: hue slider, gradient preview, Reset to default / OK / Cancel buttons" />
+<img src="docs/water-color-picker.png" width="400" alt="Water color picker: hue, saturation, and lightness sliders, gradient preview, Reset to default / OK / Cancel buttons" />
 
 ### Custom characters
 
@@ -156,7 +158,7 @@ shaders.hlsl  water shading: heightfield normals, specular, foam, waterline glow
 sim.rs        two-buffer height-field wave equation on a downsampled CPU grid
 character.rs  wander AI, two-point hull buoyancy on spring-dampers, turn squash
 assets.rs     embedded sprites → trimmed, premultiplied GPU atlases
-colorpicker.rs  water-color popup: hue slider with live taskbar preview
+colorpicker.rs  water-color popup: H/S/L sliders with live taskbar preview
 import.rs     "Import image…": file dialog → WIC decode → normalized sprite
 config.rs     TOML config with hot reload · autostart.rs · tray.rs
 ```

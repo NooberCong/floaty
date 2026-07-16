@@ -1,6 +1,7 @@
-//! "Water color" popup: a hue slider with a live preview of the shallow→deep
-//! gradient. Dragging posts WM_WATER_PREVIEW to the owner so the overlay
-//! recolors immediately; nothing is written to config until OK posts
+//! "Water color" popup: hue / saturation / lightness sliders with a live
+//! preview of the shallow→deep gradient. Dragging posts WM_WATER_PREVIEW to
+//! the owner so the overlay recolors immediately; nothing is written to
+//! config until OK posts
 //! WM_WATER_COMMIT. "Reset to current" snaps back to the saved color and
 //! Cancel / closing the window posts WM_WATER_CANCEL to revert the preview.
 
@@ -15,9 +16,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::config::{parse_color, Config};
 
-/// Posted to the owner while dragging; lparam = hue in tenths of a degree,
-/// wparam = 1 when the base palette is the stock default (after "Reset to
-/// default") instead of the saved config colors.
+/// Posted to the owner while dragging; unpack the picked HSL and the
+/// stock-palette flag with [`decode_preview`].
 pub const WM_WATER_PREVIEW: u32 = WM_APP + 2;
 /// Posted to the owner when OK is clicked; the previewed color should be saved.
 pub const WM_WATER_COMMIT: u32 = WM_APP + 3;
@@ -30,29 +30,35 @@ const ID_RESET: u32 = 3;
 
 // Layout in 96-dpi units, scaled at runtime.
 const CLIENT_W: i32 = 340;
-const CLIENT_H: i32 = 142;
+const CLIENT_H: i32 = 196;
 const MARGIN: i32 = 14;
+/// Width reserved left of the slider bars for their labels.
+const LABEL_W: i32 = 62;
 const BAR_Y: i32 = 14;
-const BAR_H: i32 = 22;
-const SWATCH_Y: i32 = 46;
+const BAR_H: i32 = 18;
+/// Vertical distance between consecutive slider bar tops.
+const BAR_STEP: i32 = 28;
+const SWATCH_Y: i32 = 98;
 const SWATCH_H: i32 = 24;
-const HINT_Y: i32 = 76;
+const HINT_Y: i32 = 130;
 const HINT_H: i32 = 18;
-const BTN_Y: i32 = 102;
+const BTN_Y: i32 = 156;
 const BTN_H: i32 = 26;
 
 struct State {
     owner: HWND,
     shallow0: [f32; 3],
     deep0: [f32; 3],
-    /// Hue of the base shallow color — the slider position that reproduces
+    /// HSL of the base shallow color — the slider positions that reproduce
     /// the base palette exactly.
-    hue0: f32,
-    hue: f32,
+    hsl0: [f32; 3],
+    /// Current slider values: hue in degrees, saturation / lightness in 0–1.
+    hsl: [f32; 3],
     /// True after "Reset to default": the base palette is the stock colors.
     use_stock: bool,
     scale: f32,
-    dragging: bool,
+    /// Index of the bar being dragged (0 = hue, 1 = saturation, 2 = lightness).
+    dragging: Option<usize>,
     /// Set once OK or Cancel has posted its message, so WM_DESTROY does not
     /// post a second (cancelling) verdict.
     decided: bool,
@@ -77,18 +83,18 @@ pub fn open(owner: HWND, shallow_hex: &str, deep_hex: &str) -> Result<HWND> {
 
     let shallow0 = parse_color(shallow_hex);
     let deep0 = parse_color(deep_hex);
-    let hue0 = rgb_to_hsl(shallow0).0;
+    let (h, s, l) = rgb_to_hsl(shallow0);
     let scale = unsafe { GetDpiForSystem() } as f32 / 96.0;
 
     let state = Box::new(State {
         owner,
         shallow0,
         deep0,
-        hue0,
-        hue: hue0,
+        hsl0: [h, s, l],
+        hsl: [h, s, l],
         use_stock: false,
         scale,
-        dragging: false,
+        dragging: None,
         decided: false,
     });
 
@@ -141,12 +147,13 @@ fn sc(v: i32, scale: f32) -> i32 {
     (v as f32 * scale).round() as i32
 }
 
-fn bar_rect(scale: f32) -> RECT {
+fn bar_rect(i: usize, scale: f32) -> RECT {
+    let top = BAR_Y + i as i32 * BAR_STEP;
     RECT {
-        left: sc(MARGIN, scale),
-        top: sc(BAR_Y, scale),
+        left: sc(MARGIN + LABEL_W, scale),
+        top: sc(top, scale),
         right: sc(CLIENT_W - MARGIN, scale),
-        bottom: sc(BAR_Y + BAR_H, scale),
+        bottom: sc(top + BAR_H, scale),
     }
 }
 
@@ -179,22 +186,27 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         }
         WM_LBUTTONDOWN => {
             let (x, y) = (loword_i(lparam), hiword_i(lparam));
-            let bar = bar_rect(st.scale);
-            if x >= bar.left && x <= bar.right && y >= bar.top - 6 && y <= bar.bottom + 6 {
-                st.dragging = true;
-                unsafe {
-                    SetCapture(hwnd);
+            for i in 0..3 {
+                let bar = bar_rect(i, st.scale);
+                if x >= bar.left && x <= bar.right && y >= bar.top - 4 && y <= bar.bottom + 4 {
+                    st.dragging = Some(i);
+                    unsafe {
+                        SetCapture(hwnd);
+                    }
+                    slide_to(hwnd, st, i, x);
+                    break;
                 }
-                slide_to(hwnd, st, x);
             }
             LRESULT(0)
         }
-        WM_MOUSEMOVE if st.dragging => {
-            slide_to(hwnd, st, loword_i(lparam));
+        WM_MOUSEMOVE => {
+            if let Some(i) = st.dragging {
+                slide_to(hwnd, st, i, loword_i(lparam));
+            }
             LRESULT(0)
         }
-        WM_LBUTTONUP if st.dragging => {
-            st.dragging = false;
+        WM_LBUTTONUP if st.dragging.is_some() => {
+            st.dragging = None;
             unsafe {
                 let _ = ReleaseCapture();
             }
@@ -220,8 +232,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     let def = Config::default();
                     st.shallow0 = parse_color(&def.water_shallow);
                     st.deep0 = parse_color(&def.water_deep);
-                    st.hue0 = rgb_to_hsl(st.shallow0).0;
-                    st.hue = st.hue0;
+                    let (h, s, l) = rgb_to_hsl(st.shallow0);
+                    st.hsl0 = [h, s, l];
+                    st.hsl = st.hsl0;
                     st.use_stock = true;
                     post_preview(st);
                     unsafe {
@@ -294,10 +307,10 @@ fn hiword_i(lparam: LPARAM) -> i32 {
     ((lparam.0 >> 16) & 0xffff) as i16 as i32
 }
 
-fn slide_to(hwnd: HWND, st: &mut State, x: i32) {
-    let bar = bar_rect(st.scale);
+fn slide_to(hwnd: HWND, st: &mut State, i: usize, x: i32) {
+    let bar = bar_rect(i, st.scale);
     let t = ((x - bar.left) as f32 / (bar.right - bar.left).max(1) as f32).clamp(0.0, 1.0);
-    st.hue = t * 360.0;
+    st.hsl[i] = if i == 0 { t * 360.0 } else { t };
     post_preview(st);
     unsafe {
         let _ = InvalidateRect(Some(hwnd), None, false);
@@ -305,14 +318,32 @@ fn slide_to(hwnd: HWND, st: &mut State, x: i32) {
 }
 
 fn post_preview(st: &State) {
+    let (wparam, lparam) = encode_preview(st.use_stock, st.hsl);
     unsafe {
-        let _ = PostMessageW(
-            Some(st.owner),
-            WM_WATER_PREVIEW,
-            WPARAM(st.use_stock as usize),
-            LPARAM((st.hue * 10.0).round() as isize),
-        );
+        let _ = PostMessageW(Some(st.owner), WM_WATER_PREVIEW, wparam, lparam);
     }
+}
+
+/// Pack the WM_WATER_PREVIEW payload: lparam carries the hue in tenths of a
+/// degree; wparam carries the stock-palette flag in bit 0 with saturation and
+/// lightness in permille above it.
+fn encode_preview(stock: bool, hsl: [f32; 3]) -> (WPARAM, LPARAM) {
+    let s = (hsl[1] * 1000.0).round() as usize;
+    let l = (hsl[2] * 1000.0).round() as usize;
+    (
+        WPARAM(stock as usize | (s << 1) | (l << 16)),
+        LPARAM((hsl[0] * 10.0).round() as isize),
+    )
+}
+
+/// Unpack a WM_WATER_PREVIEW payload into (use_stock, hue, saturation, lightness).
+pub fn decode_preview(wparam: WPARAM, lparam: LPARAM) -> (bool, f32, f32, f32) {
+    (
+        wparam.0 & 1 != 0,
+        lparam.0 as f32 / 10.0,
+        ((wparam.0 >> 1) & 0x3ff) as f32 / 1000.0,
+        ((wparam.0 >> 16) & 0x3ff) as f32 / 1000.0,
+    )
 }
 
 fn finish(hwnd: HWND, st: &mut State, commit: bool) {
@@ -342,31 +373,56 @@ fn paint(hwnd: HWND, st: &State) {
         FillRect(mem, &rc, GetSysColorBrush(COLOR_3DFACE));
         let dc_brush = HBRUSH(GetStockObject(DC_BRUSH).0);
         let black = HBRUSH(GetStockObject(BLACK_BRUSH).0);
+        let font_old = SelectObject(mem, GetStockObject(DEFAULT_GUI_FONT));
+        SetBkMode(mem, TRANSPARENT);
 
-        // Hue bar.
-        let bar = bar_rect(st.scale);
-        for x in bar.left..bar.right {
-            let hue = (x - bar.left) as f32 / (bar.right - bar.left) as f32 * 360.0;
-            SetDCBrushColor(mem, colorref(hsl_to_rgb(hue, 0.85, 0.55)));
-            let col = RECT { left: x, top: bar.top, right: x + 1, bottom: bar.bottom };
-            FillRect(mem, &col, dc_brush);
+        // Slider bars. Hue is drawn at fixed vividness so the spectrum stays
+        // readable; saturation and lightness are drawn at the current values
+        // of the other channels, so each bar previews exactly what dragging
+        // it would produce.
+        let [hue, sat, light] = st.hsl;
+        let bars = [("Hue", hue / 360.0), ("Saturation", sat), ("Lightness", light)];
+        SetTextColor(mem, COLORREF(GetSysColor(COLOR_WINDOWTEXT)));
+        for (i, (label, value)) in bars.into_iter().enumerate() {
+            let bar = bar_rect(i, st.scale);
+            let span = (bar.right - bar.left).max(1);
+
+            let mut text: Vec<u16> = label.encode_utf16().collect();
+            let mut lrc = RECT {
+                left: sc(MARGIN, st.scale),
+                top: bar.top,
+                right: bar.left - sc(6, st.scale),
+                bottom: bar.bottom,
+            };
+            DrawTextW(mem, &mut text, &mut lrc, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+            for x in bar.left..bar.right {
+                let t = (x - bar.left) as f32 / span as f32;
+                let c = match i {
+                    0 => hsl_to_rgb(t * 360.0, 0.85, 0.55),
+                    1 => hsl_to_rgb(hue, t, light),
+                    _ => hsl_to_rgb(hue, sat, t),
+                };
+                SetDCBrushColor(mem, colorref(c));
+                let col = RECT { left: x, top: bar.top, right: x + 1, bottom: bar.bottom };
+                FillRect(mem, &col, dc_brush);
+            }
+            FrameRect(mem, &bar, black);
+
+            // Thumb.
+            let tx = bar.left + (value * span as f32) as i32;
+            let thumb = RECT {
+                left: tx - 3,
+                top: bar.top - 4,
+                right: tx + 4,
+                bottom: bar.bottom + 4,
+            };
+            SetDCBrushColor(mem, COLORREF(0x00ffffff));
+            FillRect(mem, &thumb, dc_brush);
+            FrameRect(mem, &thumb, black);
         }
-        FrameRect(mem, &bar, black);
 
-        // Thumb.
-        let tx = bar.left + ((st.hue / 360.0) * (bar.right - bar.left) as f32) as i32;
-        let thumb = RECT {
-            left: tx - 3,
-            top: bar.top - 4,
-            right: tx + 4,
-            bottom: bar.bottom + 4,
-        };
-        SetDCBrushColor(mem, COLORREF(0x00ffffff));
-        FillRect(mem, &thumb, dc_brush);
-        FrameRect(mem, &thumb, black);
-
-        // Preview swatch: the shallow→deep gradient this hue produces.
-        let (shallow, deep) = derive_rgb(st.shallow0, st.deep0, st.hue);
+        // Preview swatch: the shallow→deep gradient this HSL produces.
+        let (shallow, deep) = derive_rgb(st.shallow0, st.deep0, st.hsl);
         let sw = RECT {
             left: sc(MARGIN, st.scale),
             top: sc(SWATCH_Y, st.scale),
@@ -387,8 +443,6 @@ fn paint(hwnd: HWND, st: &State) {
         FrameRect(mem, &sw, black);
 
         // Hint line.
-        let font_old = SelectObject(mem, GetStockObject(DEFAULT_GUI_FONT));
-        SetBkMode(mem, TRANSPARENT);
         SetTextColor(mem, COLORREF(0x00707070));
         let mut text: Vec<u16> =
             "Live preview on the taskbar \u{2014} OK applies, Cancel puts it back."
@@ -420,32 +474,30 @@ fn colorref(c: [f32; 3]) -> COLORREF {
 
 // ---------------------------------------------------------------- color ----
 
-/// Recolor the saved shallow/deep pair to `hue`: each keeps its saturation and
-/// lightness, and deep keeps its hue offset relative to shallow, so the pair
-/// stays a coherent "water" gradient. At the saved color's own hue the inputs
-/// are returned untouched, so Reset → OK is an exact no-op.
-pub fn derive(shallow_hex: &str, deep_hex: &str, hue: f32) -> (String, String) {
-    let (s, d) = derive_rgb(parse_color(shallow_hex), parse_color(deep_hex), hue);
-    (hex(s), hex(d))
+/// Recolor the saved shallow/deep pair to the picked HSL: shallow takes it
+/// directly, while deep keeps its hue/saturation/lightness offsets relative
+/// to shallow, so the pair stays a coherent "water" gradient. At the saved
+/// color's own HSL the inputs are returned untouched, so Reset → OK is an
+/// exact no-op.
+pub fn derive(shallow_hex: &str, deep_hex: &str, h: f32, s: f32, l: f32) -> (String, String) {
+    let (sh, dp) = derive_rgb(parse_color(shallow_hex), parse_color(deep_hex), [h, s, l]);
+    (hex(sh), hex(dp))
 }
 
-fn derive_rgb(shallow0: [f32; 3], deep0: [f32; 3], hue: f32) -> ([f32; 3], [f32; 3]) {
-    let (h_s, mut s_s, l_s) = rgb_to_hsl(shallow0);
-    let (h_d, mut s_d, l_d) = rgb_to_hsl(deep0);
-    if hue_dist(hue, h_s) < 0.5 {
+fn derive_rgb(shallow0: [f32; 3], deep0: [f32; 3], hsl: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+    let (h0, s0, l0) = rgb_to_hsl(shallow0);
+    let (h_d, s_d, l_d) = rgb_to_hsl(deep0);
+    let [h, s, l] = hsl;
+    if hue_dist(h, h0) < 0.5 && (s - s0).abs() < 0.005 && (l - l0).abs() < 0.005 {
         return (shallow0, deep0);
     }
-    // A grey base would make the slider a no-op; give it some body to color.
-    if s_s < 0.05 {
-        s_s = 0.6;
-    }
-    if s_d < 0.05 {
-        s_d = 0.6;
-    }
-    let delta = hue - h_s;
     (
-        hsl_to_rgb(wrap_hue(hue), s_s, l_s),
-        hsl_to_rgb(wrap_hue(h_d + delta), s_d, l_d),
+        hsl_to_rgb(wrap_hue(h), s, l),
+        hsl_to_rgb(
+            wrap_hue(h_d + h - h0),
+            (s_d + s - s0).clamp(0.0, 1.0),
+            (l_d + l - l0).clamp(0.0, 1.0),
+        ),
     )
 }
 
